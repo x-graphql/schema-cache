@@ -40,26 +40,9 @@ final readonly class SchemaCache
     {
         $this->cache->clear();
 
+        $types = $directives = [];
         $directivePrinterRef = new \ReflectionMethod(SchemaPrinter::class, 'printDirective');
         $directivePrinter = $directivePrinterRef->getClosure();
-        $types = $directives = [];
-
-        foreach ($schema->getTypeMap() as $type) {
-            if (in_array($type, Type::builtInTypes(), true)) {
-                continue;
-            }
-
-            $ast = $type->astNode();
-
-            if (null === $ast) {
-                $sdl = SchemaPrinter::printType($type);
-                $ast = Parser::parse($sdl, ['noLocation' => true])->definitions[0];
-            }
-
-            $name = $types[] = $type->name();
-
-            $this->cache->set($this->keyOfType($name), AST::toArray($ast));
-        }
 
         foreach ($schema->getDirectives() as $directive) {
             if (in_array($directive, Directive::getInternalDirectives(), true)) {
@@ -78,14 +61,31 @@ final readonly class SchemaCache
             $this->cache->set($this->keyOfDirective($name), AST::toArray($ast));
         }
 
-        $this->cache->set(self::TYPES_KEY, $types);
-        $this->cache->set(self::DIRECTIVES_KEY, $directives);
+        foreach ($schema->getTypeMap() as $type) {
+            if (in_array($type, Type::builtInTypes(), true)) {
+                continue;
+            }
+
+            $ast = $type->astNode();
+
+            if (null === $ast) {
+                $sdl = SchemaPrinter::printType($type);
+                $ast = Parser::parse($sdl, ['noLocation' => true])->definitions[0];
+            }
+
+            $name = $types[] = $type->name();
+
+            $this->cache->set($this->keyOfType($name), AST::toArray($ast));
+        }
 
         foreach (['query', 'mutation', 'subscription'] as $operation) {
             $operationType = $schema->getOperationType($operation);
 
-            $this->cache->set($this->keyOfOperation($operation), $operationType?->name());
+            $this->cache->set($operation, $operationType?->name());
         }
+
+        $this->cache->set(self::TYPES_KEY, $types);
+        $this->cache->set(self::DIRECTIVES_KEY, $directives);
     }
 
     /**
@@ -107,7 +107,7 @@ final readonly class SchemaCache
 
         foreach (['query', 'mutation', 'subscription'] as $operation) {
             $setter = 'set' . ucfirst($operation);
-            $typename = $this->cache->get($this->keyOfOperation($operation));
+            $typename = $this->cache->get($operation);
 
             if (null !== $typename) {
                 call_user_func([$config, $setter], fn() => $builder->buildType($typename));
@@ -175,16 +175,11 @@ final readonly class SchemaCache
 
     private function keyOfType(string $typename): string
     {
-        return sprintf('type.%s', $typename);
+        return sprintf('%s.%s', self::TYPES_KEY, $typename);
     }
 
     private function keyOfDirective(string $directiveName): string
     {
-        return sprintf('directive.%s', $directiveName);
-    }
-
-    private function keyOfOperation(string $operation): string
-    {
-        return sprintf('operation.%s.typename', $operation);
+        return sprintf('%s.%s', self::DIRECTIVES_KEY, $directiveName);
     }
 }
