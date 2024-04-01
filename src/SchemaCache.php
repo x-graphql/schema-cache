@@ -9,6 +9,7 @@ use GraphQL\Error\SerializationError;
 use GraphQL\Error\SyntaxError;
 use GraphQL\Language\Parser;
 use GraphQL\Type\Definition\Directive;
+use GraphQL\Type\Definition\NamedType;
 use GraphQL\Type\Definition\Type;
 use GraphQL\Type\Schema;
 use GraphQL\Type\SchemaConfig;
@@ -52,7 +53,7 @@ final readonly class SchemaCache
             $ast = $directive->astNode;
 
             if (null === $ast) {
-                $sdl = $directivePrinter($directive);
+                $sdl = $directivePrinter($directive, []);
                 $ast = Parser::parse($sdl, ['noLocation' => true])->definitions[0];
             }
 
@@ -93,28 +94,27 @@ final readonly class SchemaCache
      * @throws Error
      * @throws InvalidArgumentException
      */
-    public function load(callable $typeConfigDecorator = null): ?Schema
+    public function load(): ?Schema
     {
-        if (!$this->cache->has(self::TYPES_KEY)) {
+        if (!$this->cache->has(self::TYPES_KEY) || !$this->cache->has(self::DIRECTIVES_KEY)) {
             return null;
         }
 
         /** @var ASTDefinitionBuilder $builder */
         $builder = null;
         $typeResolver = $this->makeTypeResolver($builder);
-        $builder = new ASTDefinitionBuilder([], [], $typeResolver, $typeConfigDecorator);
+        $builder = new ASTDefinitionBuilder([], [], $typeResolver);
         $config = new SchemaConfig();
 
         foreach (['query', 'mutation', 'subscription'] as $operation) {
-            $setter = 'set' . ucfirst($operation);
             $typename = $this->cache->get($operation);
 
             if (null !== $typename) {
-                call_user_func([$config, $setter], fn() => $builder->buildType($typename));
+                call_user_func([$config, 'set' . ucfirst($operation)], fn() => $builder->buildType($typename));
             }
         }
 
-        $config->setTypeLoader(fn(string $name) => $builder->buildType($name));
+        $config->setTypeLoader($this->makeTypeLoader($builder));
         $config->setDirectives($this->loadDirectives($builder));
         $config->setTypes($this->loadTypes($builder));
 
@@ -170,6 +170,17 @@ final readonly class SchemaCache
             }
 
             return $schemaDef(AST::fromArray($astNormalized));
+        };
+    }
+
+    private function makeTypeLoader(ASTDefinitionBuilder $builder): \Closure
+    {
+        return function (string $name) use ($builder): ?NamedType {
+            if (!$this->cache->has($this->keyOfType($name))) {
+                return null;
+            }
+
+            return $builder->buildType($name);
         };
     }
 
