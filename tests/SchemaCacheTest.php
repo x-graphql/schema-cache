@@ -151,6 +151,23 @@ SDL;
         $schemaCache->load()->getTypeMap();
     }
 
+    public function testLookupOfBuiltInScalarKeepsTypesLazy(): void
+    {
+        $psrCache = new Psr16Cache(new ArrayAdapter());
+        $psrCache->set('types', ['missing']);
+        $psrCache->set('directives', []);
+        $schemaCache = new SchemaCache($psrCache);
+
+        $schema = $schemaCache->load();
+
+        // `webonyx/graphql-php` >= 15.35 skips the type loader for built-in scalar
+        // names and resolves the lazily provided `types` looking for overrides,
+        // unless they were declared. Resolving them here would throw, since
+        // `missing` has no AST in the cache.
+        $this->assertSame(Type::string(), $schema->getType('String'));
+        $this->assertSame(Type::id(), $schema->getType('ID'));
+    }
+
     public function testLoadSchemaFromEmptyCache(): void
     {
         $psrCache = new Psr16Cache(new ArrayAdapter());
