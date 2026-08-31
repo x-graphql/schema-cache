@@ -118,6 +118,16 @@ final readonly class SchemaCache
         $config->setDirectives($this->loadDirectives($builder));
         $config->setTypes($this->loadTypes($builder));
 
+        if (method_exists($config, 'setScalarOverrides')) {
+            // `webonyx/graphql-php` >= 15.35 skips the type loader for built-in
+            // scalar names, then resolves the lazily provided `types` looking for
+            // overrides unless they were declared, which defeats this cache on any
+            // sizable schema. A schema rebuilt from cached AST can never replace a
+            // built-in scalar, so declaring an empty list states a fact and keeps
+            // the type loader lazy. See webonyx CHANGELOG v15.35.0.
+            $config->setScalarOverrides([]);
+        }
+
         return new Schema($config);
     }
 
